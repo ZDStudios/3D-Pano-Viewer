@@ -1,0 +1,9 @@
+# your drone photos, stitched cache and exports stay local
+Panoramas/
+Exports/
+Cache/
+*.exe
+dist/
+build/
+__pycache__/
+.claude/

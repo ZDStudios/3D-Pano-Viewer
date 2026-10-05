@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Pano Viewer</title>
+<link rel="icon" href="/favicon.ico">
+<style>
+  :root {
+    --bg: #0d1117; --panel: #151b23; --panel2: #1c2430; --line: #2a3442;
+    --text: #e6edf3; --muted: #8b98a8; --accent: #3fa7ff; --accent2: #1f6feb;
+    --ok: #3fb950; --warn: #d29922; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
+  #app { display: grid; grid-template-columns: 300px 1fr; height: 100%; }
+  aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .brand { padding: 16px 16px 12px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
+  .brand img { width: 28px; height: 28px; }
+  .brand b { font-size: 15px; letter-spacing: .2px; }
+  .brand small { display: block; color: var(--muted); font-size: 11px; }
+  .side-actions { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  #list { overflow-y: auto; flex: 1; padding: 8px; }
+  .item { border: 1px solid transparent; border-radius: 10px; padding: 8px; margin-bottom: 6px; cursor: pointer; background: var(--panel2); }
+  .item:hover { border-color: var(--line); }
+  .item.sel { border-color: var(--accent); }
+  .thumb { width: 100%; aspect-ratio: 2/1; border-radius: 6px; background: #0b0f14 center/cover no-repeat;
+    display: grid; place-items: center; color: var(--muted); font-size: 12px; }
+  .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; gap: 6px; }
+  .meta .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .tag.ok { color: var(--ok); }
+  .bar { height: 4px; background: #0b0f14; border-radius: 2px; overflow: hidden; margin-top: 6px; }
+  .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+  .empty { color: var(--muted); padding: 16px; font-size: 13px; }
+  .empty code { color: var(--text); background: #0b0f14; padding: 1px 5px; border-radius: 4px; }
+  main { position: relative; min-width: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; }
+  canvas:active { cursor: grabbing; }
+  button, select { font: inherit; color: var(--text); background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  button:hover { border-color: #3a4656; }
+  button.primary { background: var(--accent2); border-color: var(--accent2); }
+  button.primary:hover { background: #2f7ff0; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .toolbar { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); display: flex; gap: 6px; align-items: center;
+    background: rgba(21,27,35,.85); backdrop-filter: blur(8px); border: 1px solid var(--line); padding: 6px; border-radius: 12px; }
+  .toolbar .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+  .toolbar input[type=range] { width: 90px; accent-color: var(--accent); }
+  .topright { position: absolute; right: 16px; top: 16px; display: flex; gap: 8px; }
+  .card { background: rgba(21,27,35,.92); backdrop-filter: blur(8px); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  #exportPanel { position: absolute; right: 16px; top: 60px; width: 300px; display: none; }
+  #exportPanel h3 { margin: 0 0 10px; font-size: 14px; }
+  #exportPanel label { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; cursor: pointer; }
+  #exportPanel label small { display: block; color: var(--muted); font-size: 12px; }
+  #exportPanel .row { display: flex; gap: 8px; margin-top: 10px; }
+  #exportMsg { color: var(--muted); font-size: 12px; margin-top: 8px; min-height: 16px; word-break: break-all; }
+  #overlay { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+  #overlay .card { pointer-events: auto; text-align: center; max-width: 420px; }
+  #overlay h2 { margin: 0 0 6px; font-size: 18px; }
+  #overlay p { color: var(--muted); margin: 0 0 12px; }
+  #overlay .bar { height: 6px; margin: 12px 0 4px; }
+  .hint { position: absolute; left: 16px; top: 16px; color: var(--muted); font-size: 12px;
+    background: rgba(13,17,23,.6); padding: 4px 8px; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand"><img src="/favicon.ico" alt=""><div><b>3D Pano Viewer</b><small>DJI 360° sphere panoramas</small></div></div>
+    <div class="side-actions">
+      <button id="openPanos" title="Put a folder of drone shots (or a .zip) in here">📁 Panoramas folder</button>
+      <button id="refresh" title="Rescan">⟳</button>
+    </div>
+    <div id="list"></div>
+  </aside>
+  <main>
+    <canvas id="gl"></canvas>
+    <div class="hint" id="hint">Drag to look · scroll to zoom · Space = spin</div>
+    <div class="topright">
+      <select id="quality" title="Stitch resolution">
+        <option value="4096">4K (fast)</option>
+        <option value="8192" selected>8K</option>
+        <option value="12288">12K (slow)</option>
+      </select>
+      <button id="restitch" disabled>Re-stitch</button>
+      <button id="exportBtn" class="primary" disabled>Export 3D ▾</button>
+    </div>
+    <div id="exportPanel" class="card">
+      <h3>Export for Blender</h3>
+      <label><input type="checkbox" id="fGlb" checked><span>GLB sphere<small>Single file, texture embedded. Best for Blender / Unity / web.</small></span></label>
+      <label><input type="checkbox" id="fObj" checked><span>OBJ sphere<small>.obj + .mtl + texture, works almost everywhere.</small></span></label>
+      <label><input type="checkbox" id="fEq" checked><span>Equirectangular JPG<small>Use as a Blender World / HDRI environment.</small></span></label>
+      <div class="row"><button class="primary" id="doExport">Export</button><button id="openExport">Open folder</button></div>
+      <div id="exportMsg"></div>
+    </div>
+    <div class="toolbar">
+      <button data-mode="0" class="mode on" title="Stand inside the panorama">360°</button>
+      <button data-mode="1" class="mode" title="Tiny planet projection">Little planet</button>
+      <button data-mode="2" class="mode" title="Spinning 3D globe">Globe</button>
+      <span class="sep"></span>
+      <button id="spin" class="on" title="Auto-rotate (Space)">⟲ Spin</button>
+      <input type="range" id="speed" min="-30" max="30" value="6" title="Spin speed / direction">
+      <span class="sep"></span>
+      <button id="reset" title="Reset view">⌂</button>
+      <button id="snap" title="Save a screenshot of this view">📷</button>
+      <button id="full" title="Fullscreen (F)">⛶</button>
+    </div>
+    <div id="overlay"></div>
+  </main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = (p) => fetch(p, {method: 'POST'}).then(r => r.json());
+
+// ------------------------------------------------------------ WebGL viewer
+const canvas = $('#gl');
+const gl = canvas.getContext('webgl2', {preserveDrawingBuffer: true, antialias: false});
+const VS = `#version 300 es
+in vec2 p; out vec2 uv; void main(){ uv = p; gl_Position = vec4(p,0.,1.); }`;
+const FS = `#version 300 es
+precision highp float;
+in vec2 uv; out vec4 o;
+uniform sampler2D tex; uniform float yaw, pitch, fov, aspect, hasTex; uniform int mode;
+const float PI = 3.14159265359;
+vec3 rotY(vec3 v, float a){ float c=cos(a), s=sin(a); return vec3(c*v.x + s*v.z, v.y, -s*v.x + c*v.z); }
+vec3 rotX(vec3 v, float a){ float c=cos(a), s=sin(a); return vec3(v.x, c*v.y + s*v.z, -s*v.y + c*v.z); }
+vec4 sampleDir(vec3 d){
+  d = normalize(d);
+  float lon = atan(d.x, d.z), lat = asin(clamp(d.y, -1., 1.));
+  vec2 t = vec2(lon / (2.*PI) + .5, .5 - lat / PI);
+  // seam-safe derivatives so mipmapping doesn't draw a line at +/-180 deg
+  vec2 t2 = vec2(fract(t.x + .5), t.y);
+  vec2 dx = dFdx(t), dy = dFdy(t), dx2 = dFdx(t2), dy2 = dFdy(t2);
+  if (abs(dx2.x) + abs(dy2.x) < abs(dx.x) + abs(dy.x)) { dx = dx2; dy = dy2; }
+  return textureGrad(tex, t, dx, dy);
+}
+void main(){
+  vec2 s = vec2(uv.x * aspect, uv.y);
+  vec3 col;
+  if (hasTex < .5) { o = vec4(vec3(.05,.07,.09) + .03*(1.-length(uv)), 1.); return; }
+  if (mode == 0) {           // inside: rectilinear camera
+    vec3 d = normalize(vec3(s * tan(fov * .5), 1.));
+    d = rotY(rotX(d, pitch), yaw);
+    col = sampleDir(d).rgb;
+  } else if (mode == 1) {    // little planet: stereographic from nadir
+    vec2 q = s * (2.2 * fov / 1.4);
+    float r = length(q), th = 2. * atan(r * .5);
+    vec2 n = r > 0. ? q / r : vec2(0.);
+    vec3 d = vec3(sin(th) * n.x, -cos(th), sin(th) * n.y);
+    col = sampleDir(rotY(d, yaw)).rgb;
+  } else {                   // globe: orbit camera around a sphere
+    float dist = 1.2 / sin(fov * .5);
+    vec3 ro = vec3(0., 0., -dist), rd = normalize(vec3(s * .55, 1.));
+    ro = rotX(ro, -pitch); rd = rotX(rd, -pitch);
+    float b = dot(ro, rd), c = dot(ro, ro) - 1., h = b*b - c;
+    if (h < 0.) {
+      float glow = exp(-8. * max(0., sqrt(max(0., c - b*b + 1.)) - 1.));
+      o = vec4(vec3(.05,.07,.09) + vec3(.12,.3,.55) * glow * .35, 1.); return;
+    }
+    vec3 hit = ro + rd * (-b - sqrt(h));
+    vec3 d = rotY(hit, -yaw);
+    col = sampleDir(vec3(-d.x, d.y, d.z)).rgb;   // mirror so text reads correctly from outside
+    float rim = pow(1. - max(0., dot(-rd, hit)), 3.);
+    col = mix(col, vec3(.55,.75,1.), rim * .5) * (.75 + .25 * max(0., dot(hit, normalize(vec3(-.4,.5,-.8)))));
+  }
+  o = vec4(col, 1.);
+}`;
+function sh(type, src){ const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw gl.getShaderInfoLog(s); return s; }
+const prog = gl.createProgram();
+gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+gl.linkProgram(prog); gl.useProgram(prog);
+const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+const U = n => gl.getUniformLocation(prog, n);
+const tex = gl.createTexture();
+const maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+
+const view = { yaw: 0, pitch: 0, fov: 1.6, mode: 0, spin: true, speed: 6, hasTex: 0 };
+const DEFAULTS = { 0: {pitch: 0, fov: 1.6}, 1: {pitch: 0, fov: 1.4}, 2: {pitch: .35, fov: 1.0} };
+const FOV = { 0: [0.3, 2.2], 1: [0.5, 3.0], 2: [0.35, 2.4] };
+
+function setTexture(img){
+  let src = img;
+  if (img.width > maxTex) {   // GPU can't hold it – downscale
+    const c = document.createElement('canvas'); c.width = maxTex; c.height = maxTex / 2;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); src = c;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
+  gl.generateMipmap(gl.TEXTURE_2D);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+  view.hasTex = 1;
+}
+
+let last = performance.now(), dragging = false, idleUntil = 0;
+function frame(t){
+  const dt = Math.min(.1, (t - last) / 1000); last = t;
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = canvas.clientWidth * dpr | 0, h = canvas.clientHeight * dpr | 0;
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+  if (view.spin && !dragging && t > idleUntil) view.yaw += view.speed * dt * Math.PI / 180;
+  gl.viewport(0, 0, w, h);
+  gl.uniform1f(U('yaw'), view.yaw); gl.uniform1f(U('pitch'), view.pitch); gl.uniform1f(U('fov'), view.fov);
+  gl.uniform1f(U('aspect'), w / h); gl.uniform1f(U('hasTex'), view.hasTex); gl.uniform1i(U('mode'), view.mode);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// interaction
+let px, py;
+canvas.addEventListener('pointerdown', e => { dragging = true; px = e.clientX; py = e.clientY; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  const k = (view.mode === 0 ? view.fov : 1.6) / canvas.clientHeight * 1.2;
+  const sign = view.mode === 2 ? 1 : -1;
+  view.yaw += sign * (e.clientX - px) * k;
+  view.pitch = Math.max(-1.55, Math.min(1.55, view.pitch + (view.mode === 2 ? -1 : 1) * (e.clientY - py) * k));
+  px = e.clientX; py = e.clientY;
+});
+canvas.addEventListener('pointerup', () => { dragging = false; idleUntil = performance.now() + 1500; });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [a, b] = FOV[view.mode];
+  view.fov = Math.max(a, Math.min(b, view.fov * Math.exp(e.deltaY * 0.001)));
+}, {passive: false});
+canvas.addEventListener('dblclick', () => toggleFull());
+
+function setMode(m){
+  view.mode = m; Object.assign(view, DEFAULTS[m]);
+  document.querySelectorAll('.mode').forEach(b => b.classList.toggle('on', +b.dataset.mode === m));
+}
+document.querySelectorAll('.mode').forEach(b => b.onclick = () => setMode(+b.dataset.mode));
+function setSpin(on){ view.spin = on; $('#spin').classList.toggle('on', on); }
+$('#spin').onclick = () => setSpin(!view.spin);
+$('#speed').oninput = e => { view.speed = +e.target.value; setSpin(true); };
+$('#reset').onclick = () => { view.yaw = 0; setMode(view.mode); };
+function toggleFull(){ document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen(); }
+$('#full').onclick = toggleFull;
+$('#snap').onclick = () => {
+  const a = document.createElement('a'); a.download = (current || 'pano') + '_view.png';
+  a.href = canvas.toDataURL('image/png'); a.click();
+};
+addEventListener('keydown', e => {
+  if (e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); setSpin(!view.spin); }
+  if (e.key === 'f' || e.key === 'F') toggleFull();
+  if (e.key === '1') setMode(0); if (e.key === '2') setMode(1); if (e.key === '3') setMode(2);
+  if (e.key === 'ArrowLeft') view.yaw -= .1; if (e.key === 'ArrowRight') view.yaw += .1;
+  if (e.key === 'ArrowUp') view.pitch = Math.min(1.55, view.pitch + .1);
+  if (e.key === 'ArrowDown') view.pitch = Math.max(-1.55, view.pitch - .1);
+});
+
+// ------------------------------------------------------------ library
+let panos = [], current = null, polling = null;
+const overlay = $('#overlay');
+
+async function refresh(){
+  const r = await api('/api/list');
+  panos = r.panos;
+  const list = $('#list');
+  if (!panos.length) {
+    list.innerHTML = `<div class="empty">No panoramas yet.<br><br>Copy a folder of drone shots (e.g. <code>DCIM/PANORAMA/001_0067</code>) or its <code>.zip</code> into the <b>Panoramas</b> folder, then press ⟳.<br><br><small>${r.root.replace(/</g,'&lt;')}\\Panoramas</small></div>`;
+  } else list.innerHTML = '';
+  for (const p of panos) {
+    const el = document.createElement('div');
+    el.className = 'item' + (p.name === current ? ' sel' : '');
+    const running = p.job && p.job.state === 'running';
+    const tag = running ? `<span class="tag">${Math.round(p.job.frac*100)}%</span>`
+      : p.stitched ? `<span class="tag ok">● ${p.width/1024}K${p.exported ? ' · exported' : ''}</span>` : `<span class="tag">not stitched</span>`;
+    el.innerHTML = `<div class="thumb" style="${p.thumb ? `background-image:url('/thumb/${encodeURIComponent(p.name)}?${Date.now()}')` : ''}">${p.thumb ? '' : p.images + ' photos'}</div>
+      <div class="meta"><span class="name" title="${p.name}">${p.name}</span>${tag}</div>
+      ${running ? `<div class="bar"><i style="width:${p.job.frac*100}%"></i></div>` : ''}`;
+    el.onclick = () => select(p.name);
+    list.appendChild(el);
+  }
+  if (!current && panos.length) select(panos[0].name);
+}
+
+async function select(name){
+  current = name;
+  document.querySelectorAll('.item').forEach((el, i) => el.classList.toggle('sel', panos[i] && panos[i].name === name));
+  const p = panos.find(x => x.name === name);
+  $('#exportPanel').style.display = 'none';
+  $('#exportBtn').disabled = !p.stitched; $('#restitch').disabled = false;
+  if (p.job && p.job.state === 'running') return watch(name);
+  if (p.stitched) return load(name);
+  view.hasTex = 0;
+  overlay.innerHTML = `<div class="card"><h2>${name}</h2><p>${p.images} photos · not stitched yet.<br>Stitching aligns all shots into one 360° sphere (about 1–3 min).</p>
+    <button class="primary" id="go">Stitch panorama</button></div>`;
+  $('#go').onclick = () => stitch(name);
+}
+
+function load(name){
+  overlay.innerHTML = `<div class="card"><p>Loading…</p></div>`;
+  const img = new Image();
+  img.onload = () => { if (current !== name) return; setTexture(img); overlay.innerHTML = ''; };
+  img.onerror = () => overlay.innerHTML = `<div class="card"><p>Couldn't load panorama.</p></div>`;
+  img.src = `/pano/${encodeURIComponent(name)}?${Date.now()}`;
+}
+
+async function stitch(name){
+  await api(`/api/stitch?name=${encodeURIComponent(name)}&width=${$('#quality').value}`);
+  watch(name);
+}
+
+function watch(name){
+  view.hasTex = 0;
+  $('#exportBtn').disabled = true;
+  overlay.innerHTML = `<div class="card"><h2>Stitching ${name}</h2><p id="smsg">Starting…</p><div class="bar"><i id="sbar"></i></div></div>`;
+  clearInterval(polling);
+  polling = setInterval(async () => {
+    const s = await api(`/api/status?name=${encodeURIComponent(name)}`);
+    if (current !== name) return;
+    if ($('#smsg')) { $('#smsg').textContent = s.msg; $('#sbar').style.width = (s.frac * 100) + '%'; }
+    if (s.state === 'done') { clearInterval(polling); await refresh(); select(name); }
+    if (s.state === 'error') { clearInterval(polling); overlay.innerHTML = `<div class="card"><h2>Stitch failed</h2><p>${s.msg}</p><button id="go">Try again</button></div>`; $('#go').onclick = () => stitch(name); refresh(); }
+  }, 700);
+}
+
+$('#refresh').onclick = refresh;
+$('#openPanos').onclick = () => api('/api/open?what=panos');
+$('#restitch').onclick = () => current && stitch(current);
+$('#exportBtn').onclick = () => { const e = $('#exportPanel'); e.style.display = e.style.display === 'block' ? 'none' : 'block'; $('#exportMsg').textContent = ''; };
+$('#openExport').onclick = () => api(`/api/open?what=export&name=${encodeURIComponent(current)}`).catch(() => {});
+$('#doExport').onclick = async () => {
+  const f = [['glb', '#fGlb'], ['obj', '#fObj'], ['equirect', '#fEq']].filter(([, s]) => $(s).checked).map(([k]) => k);
+  if (!f.length) return;
+  $('#exportMsg').textContent = 'Exporting…'; $('#doExport').disabled = true;
+  const r = await api(`/api/export?name=${encodeURIComponent(current)}&formats=${f.join(',')}`);
+  $('#doExport').disabled = false;
+  $('#exportMsg').textContent = r.error ? r.error : 'Saved: ' + r.files.join(', ');
+  refresh();
+};
+
+setInterval(() => fetch('/api/ping').catch(() => {}), 2000);
+setInterval(() => { if (panos.some(p => p.job && p.job.state === 'running')) refresh(); }, 3000);
+refresh();
+</script>
+</body>
+</html>
