@@ -2,6 +2,16 @@
 
 Turns DJI sphere-panorama shots into a 360° view you can spin, and exports it as 3D models for Blender.
 
+![360° view](docs/view-360.jpg)
+
+| Little planet | Globe |
+|---|---|
+| ![Little planet](docs/little-planet.jpg) | ![Globe](docs/globe.jpg) |
+
+**Stitched output**: 35 DJI Mini 4 Pro shots merged into one equirectangular image, which is also exported for use as a Blender world/HDRI:
+
+![Equirectangular panorama](docs/equirect.jpg)
+
 ## Use
 1. Copy a panorama folder from the drone (`DCIM/PANORAMA/001_xxxx`), or its `.zip`, into `Panoramas/`, or click **Change…** in the sidebar to use any folder. Press ☰ or Tab to hide the sidebar.
 2. Run **3D Pano Viewer.exe** and pick the panorama, then click **Stitch panorama** (takes about 1–2 minutes at 8K).
