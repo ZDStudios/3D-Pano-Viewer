@@ -14,7 +14,15 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 14px/1.4 "Segoe UI", system-ui, sans-serif; overflow: hidden; user-select: none; }
-  #app { display: grid; grid-template-columns: 300px 1fr; height: 100%; }
+  #app { display: grid; grid-template-columns: 300px 1fr; height: 100%; transition: grid-template-columns .2s; }
+  #app.collapsed { grid-template-columns: 0 1fr; }
+  #app.collapsed aside { visibility: hidden; }
+  aside { overflow: hidden; min-width: 0; }
+  #sideToggle { position: absolute; left: 12px; top: 12px; z-index: 2; padding: 6px 10px; }
+  .folder { padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+  .folder div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; color: var(--text); margin: 2px 0 6px; }
+  .folder .row { display: flex; gap: 6px; }
+  .folder button { font-size: 12px; padding: 4px 8px; }
   aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
   .brand { padding: 16px 16px 12px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); }
   .brand img { width: 28px; height: 28px; }
@@ -62,7 +70,7 @@
   #overlay h2 { margin: 0 0 6px; font-size: 18px; }
   #overlay p { color: var(--muted); margin: 0 0 12px; }
   #overlay .bar { height: 6px; margin: 12px 0 4px; }
-  .hint { position: absolute; left: 16px; top: 16px; color: var(--muted); font-size: 12px;
+  .hint { position: absolute; left: 60px; top: 16px; color: var(--muted); font-size: 12px;
     background: rgba(13,17,23,.6); padding: 4px 8px; border-radius: 6px; }
 </style>
 </head>
@@ -71,13 +79,16 @@
   <aside>
     <div class="brand"><img src="/favicon.ico" alt=""><div><b>3D Pano Viewer</b><small>DJI 360° sphere panoramas</small></div></div>
     <div class="side-actions">
-      <button id="openPanos" title="Put a folder of drone shots (or a .zip) in here">📁 Panoramas folder</button>
+      <button id="openPanos" title="Open the panorama folder in Explorer">📁 Open folder</button>
       <button id="refresh" title="Rescan">⟳</button>
     </div>
+    <div class="folder">Panorama folder<div id="folderPath" title=""></div>
+      <div class="row"><button id="setFolder">Change…</button><button id="resetFolder" title="Use the Panoramas folder next to the app">Default</button></div></div>
     <div id="list"></div>
   </aside>
   <main>
     <canvas id="gl"></canvas>
+    <button id="sideToggle" title="Show / hide the panorama list (Tab)">☰</button>
     <div class="hint" id="hint">Drag to look · scroll to zoom · Space = spin</div>
     <div class="topright">
       <select id="quality" title="Stitch resolution">
@@ -256,6 +267,7 @@ addEventListener('keydown', e => {
   if (e.target.tagName === 'SELECT') return;
   if (e.code === 'Space') { e.preventDefault(); setSpin(!view.spin); }
   if (e.key === 'f' || e.key === 'F') toggleFull();
+  if (e.key === 'Tab') { e.preventDefault(); $('#sideToggle').click(); }
   if (e.key === '1') setMode(0); if (e.key === '2') setMode(1); if (e.key === '3') setMode(2);
   if (e.key === 'ArrowLeft') view.yaw -= .1; if (e.key === 'ArrowRight') view.yaw += .1;
   if (e.key === 'ArrowUp') view.pitch = Math.min(1.55, view.pitch + .1);
@@ -269,9 +281,11 @@ const overlay = $('#overlay');
 async function refresh(){
   const r = await api('/api/list');
   panos = r.panos;
+  $('#folderPath').textContent = '‎' + r.folder; $('#folderPath').title = r.folder;
+  $('#resetFolder').disabled = r.default;
   const list = $('#list');
   if (!panos.length) {
-    list.innerHTML = `<div class="empty">No panoramas yet.<br><br>Copy a folder of drone shots (e.g. <code>DCIM/PANORAMA/001_0067</code>) or its <code>.zip</code> into the <b>Panoramas</b> folder, then press ⟳.<br><br><small>${r.root.replace(/</g,'&lt;')}\\Panoramas</small></div>`;
+    list.innerHTML = `<div class="empty">No panoramas yet.<br><br>Copy a folder of drone shots (e.g. <code>DCIM/PANORAMA/001_0067</code>) or its <code>.zip</code> into your panorama folder, then press ⟳.<br><br><small>${r.folder.replace(/</g,'&lt;')}</small></div>`;
   } else list.innerHTML = '';
   for (const p of panos) {
     const el = document.createElement('div');
@@ -330,6 +344,18 @@ function watch(name){
 }
 
 $('#refresh').onclick = refresh;
+async function changeFolder(reset){
+  const r = await api('/api/setfolder' + (reset ? '?reset=1' : ''));
+  if (r.ok) { current = null; view.hasTex = 0; overlay.innerHTML = ''; refresh(); }
+}
+$('#setFolder').onclick = () => changeFolder(false);
+$('#resetFolder').onclick = () => changeFolder(true);
+function setCollapsed(c){
+  $('#app').classList.toggle('collapsed', c);
+  try { localStorage.setItem('sideCollapsed', c ? '1' : ''); } catch (e) {}
+}
+$('#sideToggle').onclick = () => setCollapsed(!$('#app').classList.contains('collapsed'));
+try { setCollapsed(!!localStorage.getItem('sideCollapsed')); } catch (e) {}
 $('#openPanos').onclick = () => api('/api/open?what=panos');
 $('#restitch').onclick = () => current && stitch(current);
 $('#exportBtn').onclick = () => { const e = $('#exportPanel'); e.style.display = e.style.display === 'block' ? 'none' : 'block'; $('#exportMsg').textContent = ''; };

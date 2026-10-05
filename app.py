@@ -29,7 +29,45 @@ if getattr(sys, "frozen", False):
 else:
     ROOT = os.path.dirname(os.path.abspath(__file__))
     RES = ROOT
-PANOS = os.path.join(ROOT, "Panoramas")
+DEFAULT_PANOS = os.path.join(ROOT, "Panoramas")
+SETTINGS = os.path.join(ROOT, "settings.json")
+
+
+def load_panos_dir():
+    try:
+        with open(SETTINGS, encoding="utf8") as fh:
+            p = json.load(fh).get("panoramas")
+        if p and os.path.isdir(p):
+            return p
+    except (OSError, ValueError):
+        pass
+    return DEFAULT_PANOS
+
+
+def set_panos_dir(path):
+    global PANOS
+    PANOS = path or DEFAULT_PANOS
+    with open(SETTINGS, "w", encoding="utf8") as fh:
+        json.dump({"panoramas": path or None}, fh, indent=2)
+
+
+def pick_folder(start):
+    """Native Windows folder picker (runs in PowerShell so no GUI toolkit is bundled)."""
+    script = (
+        "[Console]::OutputEncoding=[Text.Encoding]::UTF8;"
+        "Add-Type -AssemblyName System.Windows.Forms;"
+        "$f=New-Object System.Windows.Forms.Form -Property @{TopMost=$true};"
+        "$d=New-Object System.Windows.Forms.FolderBrowserDialog;"
+        "$d.Description='Choose the folder that holds your panorama folders';"
+        "$d.SelectedPath=$env:PANO_START;"
+        "if($d.ShowDialog($f) -eq 'OK'){$d.SelectedPath}")
+    out = subprocess.run(["powershell", "-NoProfile", "-STA", "-Command", script],
+                         capture_output=True, env={**os.environ, "PANO_START": start},
+                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return out.stdout.decode("utf8", "replace").strip() or None
+
+
+PANOS = load_panos_dir()
 EXPORTS = os.path.join(ROOT, "Exports")
 CACHE = os.path.join(ROOT, "Cache")
 for d in (PANOS, EXPORTS, CACHE):
@@ -163,7 +201,17 @@ class Handler(BaseHTTPRequestHandler):
                 last_ping[0] = time.time()
                 return self.send_json({"ok": True})
             if u.path == "/api/list":
-                return self.send_json({"panos": list_panos(), "root": ROOT})
+                return self.send_json({"panos": list_panos(), "root": ROOT, "folder": PANOS,
+                                       "default": PANOS == DEFAULT_PANOS})
+            if u.path == "/api/setfolder":
+                if q.get("reset"):
+                    set_panos_dir(None)
+                else:
+                    path = pick_folder(PANOS)
+                    if not path:
+                        return self.send_json({"ok": False})
+                    set_panos_dir(path)
+                return self.send_json({"ok": True, "folder": PANOS})
             if u.path == "/api/stitch":
                 name = safe_name(q["name"])
                 width = int(q.get("width", 8192))
